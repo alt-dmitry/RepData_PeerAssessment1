@@ -1,0 +1,143 @@
+---
+title: "Peer Assessment 1"
+output:
+  html_document:
+    keep_md: yes
+---
+
+This is a report for the peer assessment of the coursera's Reproducible Research course.
+
+Information about the raw data and the questions may be found in README file.
+
+##1. Loading and preprocessing the data
+
+First of all, i am assuming that activity.csv file is present in your working directory.
+
+Let's read it into "df" variable.
+
+```{r}
+df <- read.csv("activity.csv")
+```
+
+##2. What is mean total number of steps taken per day?
+
+- Total number of steps taken each day:
+
+```{r, echo=FALSE, warning=FALSE}
+library(ggplot2)
+dat1 <- aggregate(df[["steps"]], list(as.character(df[["date"]])),FUN=sum)
+colnames(dat1)[[1]] <- "date"
+colnames(dat1)[[2]] <- "steps"
+dat1$date <- as.Date(dat1$date)
+m <- round(mean(dat1$steps, na.rm = TRUE),2)
+med <- median(dat1$steps, na.rm = TRUE)
+ggplot(dat1, aes(x=date, y=steps)) + stat_summary(fun.y=sum, geom="bar", colour = "blue")
+```
+
+- Average number of steps per day is `r m`, median is `r med`.
+
+##3. What is the average daily activity pattern?
+
+- This is a time series plot of the 5-minute interval (x-axis) and the average number of steps taken, averaged across all days (y-axis).
+
+```{r, echo=FALSE, warning=FALSE}
+library(ggplot2)
+dat2 <- aggregate(df[["steps"]], list(as.character(df[["interval"]])),FUN=mean, na.rm = TRUE)
+colnames(dat2)[[1]] <- "interval"
+colnames(dat2)[[2]] <- "average_number_of_steps"
+dat2 <- transform(dat2, interval = as.numeric(interval))
+dat2["time"]<-NA
+
+f <- function(x){
+    if(x < 60){
+        h <- "00"
+        m <- as.character(x)
+    }
+    else if(x < 1000){
+        h <- paste("0",as.character(x %/% 100), sep="")
+        m <- as.character(x %% 100)
+    }
+    else{
+        h <- as.character(x %/% 100)
+        m <- as.character(x %% 100)
+    }
+    tmp <- paste(h,m,"00",sep = ":")
+    return(tmp)
+}
+
+for(i in 1:nrow(dat2)){
+    dat2[i,"time"] <- f(dat2[i,"interval"])
+}
+dat2[["time"]] <- as.POSIXct(strptime(dat2[["time"]], '%H:%M:%S', tz = "GMT"))
+dat2$time <- format(dat2$time, format = "%H:%M:%S")
+dat2$hms <- as.POSIXct(dat2$time, format = "%H:%M:%S")
+dat2$rank <- ave(-dat2$average_number_of_steps,FUN=function(x) rank(x,ties.method="min"))
+max_int <- subset(dat2,rank==1)[["time"]]
+ggplot(dat2, aes(x=interval, y=average_number_of_steps, group = 1)) + geom_line(colour="blue")
+```
+
+- 5-minute interval time interval with the maximum number of steps starts at `r max_int`.
+
+##4. Imputing missing values
+
+```{r, echo=FALSE, warning=FALSE}
+na_num <- nrow(subset(df,is.na(steps)))
+```
+
+- Total number of NA's in dataset is `r na_num`;
+
+- Let's fill NA values with averages for each time interval:
+
+```{r}
+joined <- merge(df,dat2,by="interval")[c(colnames(df),"average_number_of_steps")]
+for (i in 1:nrow(joined)) {
+    if(is.na(joined[i,"steps"]))
+    joined[i,"steps"] <- joined[i,"average_number_of_steps"]
+}
+joined$average_number_of_steps <- NULL
+```
+
+- With our new dataset we will again do tasks from paragraph 2. Total number of steps taken each day:
+
+```{r, echo=FALSE, warning=FALSE}
+library(ggplot2)
+dat1 <- aggregate(joined[["steps"]], list(as.character(joined[["date"]])),FUN=sum)
+colnames(dat1)[[1]] <- "date"
+colnames(dat1)[[2]] <- "steps"
+dat1$date <- as.Date(dat1$date)
+m <- round(mean(dat1$steps, na.rm = TRUE),2)
+med <- median(dat1$steps, na.rm = TRUE)
+ggplot(dat1, aes(x=date, y=steps)) + stat_summary(fun.y=sum, geom="bar", colour = "blue")
+```
+
+- Average number of steps per day is `r m`, median is `r med`. Both of them are almost the same before and after filling NA's. Total number of steps per day slightly increased (which we can see from the plot above) in some cases.
+
+##5. Are there differences in activity patterns between weekdays and weekends?
+
+- Create a weekend/weekday factor:
+
+```{r}
+joined <- transform(joined, date = as.Date(date))
+joined$WD <- weekdays(joined$date)
+for(i in 1:nrow(joined)){
+    if(joined[i,"WD"] %in% c("Saturday", "Sunday")){
+        joined[i,"WD"] <- "weekend"
+    }
+    else{
+        joined[i,"WD"] <- "weekday"
+    }
+}
+```
+
+- Plot containing a time series plot of the 5-minute interval (x-axis) and the average number of steps taken, averaged across all weekday days or weekend days (y-axis):
+
+```{r, echo=FALSE, warning=FALSE}
+library(ggplot2)
+dat2 <- aggregate(joined[["steps"]], list(as.character(joined[["interval"]]),joined[["WD"]]),FUN=mean, na.rm = TRUE)
+colnames(dat2)[[1]] <- "interval"
+colnames(dat2)[[2]] <- "WD"
+colnames(dat2)[[3]] <- "average_number_of_steps"
+dat2 <- transform(dat2, interval = as.numeric(interval))
+
+ggplot(dat2, aes(x=interval, y=average_number_of_steps, colour = WD)) + geom_line(aes(group=WD))
+```
